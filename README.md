@@ -3,18 +3,18 @@
 
 # Install
 
-``bash
+``
 npm install
 ``
 
 # Start
 
-``bash
+``
 node server.js
 ``
 
 # Open Browser
 
-``bash
+``
 http://localhost:3000
 ``
