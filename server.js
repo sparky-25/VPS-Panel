@@ -13,8 +13,8 @@ const TARGET_DIR = path.join(__dirname, 'workspace'); // Is folder ki files cont
 fs.ensureDirSync(TARGET_DIR);
 
 app.use(express.json());
-app.use(express.static(__dirname)); // HTML file server karne ke liye
-
+// Express ko batao ki saari frontend files 'public' folder ke andar hain
+app.use(express.static(path.join(__dirname, 'public')));
 // --- FILE API ---
 app.get('/api/files', async (req, res) => {
     try {
