@@ -1,178 +1,101 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const pty = require("node-pty");
-const path = require("path");
-const fs = require("fs");
-const os = require("os");
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const pty = require('node-pty'); // Real system shell access ke liye
+const fs = require('fs-extra');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
+const io = new Server(server);
 
-const io = new Server(server, {
-    cors: {
-        origin: "*"
-    }
+const TARGET_DIR = path.join(__dirname, 'workspace'); // Is folder ki files control hongi
+fs.ensureDirSync(TARGET_DIR);
+
+app.use(express.json());
+app.use(express.static(__dirname)); // HTML file server karne ke liye
+
+// --- FILE API ---
+app.get('/api/files', async (req, res) => {
+    try {
+        const items = await fs.readdir(TARGET_DIR);
+        const details = items.map(item => {
+            const stat = fs.statSync(path.join(TARGET_DIR, item));
+            return { name: item, type: stat.isDirectory() ? 'folder' : 'file' };
+        });
+        res.json(details);
+    } catch (err) { res.status(500).send(err.message); }
 });
 
-const PORT = process.env.PORT || 3000;
-
-/*
-========================
-STATIC FILES
-========================
-*/
-
-app.use(express.static(path.join(__dirname, "public")));
-
-/*
-========================
-HOME PAGE
-========================
-*/
-
-app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "public", "index.html"));
+app.post('/api/files', async (req, res) => {
+    const { name, content } = req.body;
+    try {
+        await fs.outputFile(path.join(TARGET_DIR, name), content || '');
+        res.sendStatus(201);
+    } catch (err) { res.status(500).send(err.message); }
 });
 
-/*
-========================
-GET FILES
-========================
-*/
+app.get('/api/files/:name', async (req, res) => {
+    try {
+        const content = await fs.readFile(path.join(TARGET_DIR, req.params.name), 'utf-8');
+        res.json({ content });
+    } catch (err) { res.status(500).send(err.message); }
+});
 
-app.get("/files", (req, res) => {
+app.put('/api/files/:name', async (req, res) => {
+    try {
+        await fs.writeFile(path.join(TARGET_DIR, req.params.name), req.body.content);
+        res.sendStatus(200);
+    } catch (err) { res.status(500).send(err.message); }
+});
 
-    const dir = process.cwd();
+app.delete('/api/files/:name', async (req, res) => {
+    try {
+        await fs.remove(path.join(TARGET_DIR, req.params.name));
+        res.sendStatus(200);
+    } catch (err) { res.status(500).send(err.message); }
+});
 
-    fs.readdir(dir, { withFileTypes: true }, (err, files) => {
+// --- REAL TERMINAL SOCKETS ---
+let sessions = {};
 
-        if (err) {
-            return res.status(500).json([]);
+io.on('connection', (socket) => {
+    socket.on('create-session', (id) => {
+        // Linux/Ubuntu ya Windows Shell access auto detect
+        const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+        
+        const ptyProcess = pty.spawn(shell, [], {
+            name: 'xterm-color',
+            cols: 80,
+            rows: 24,
+            cwd: TARGET_DIR, // Terminal open hote hi isi folder me rahega
+            env: process.env
+        });
+
+        sessions[id] = ptyProcess;
+
+        ptyProcess.onData((data) => {
+            socket.emit('terminal-output', { id, output: data });
+        });
+    });
+
+    socket.on('terminal-input', ({ id, data }) => {
+        if (sessions[id]) sessions[id].write(data);
+    });
+
+    socket.on('close-session', (id) => {
+        if (sessions[id]) {
+            sessions[id].kill();
+            delete sessions[id];
         }
+    });
 
-        const formatted = files.map(file => ({
-            name: file.name,
-            type: file.isDirectory() ? "folder" : "file"
-        }));
-
-        res.json(formatted);
+    socket.on('disconnect', () => {
+        Object.keys(sessions).forEach(id => {
+            sessions[id].kill();
+            delete sessions[id];
+        });
     });
 });
 
-/*
-========================
-SYSTEM INFO
-========================
-*/
-
-app.get("/system", (req, res) => {
-
-    const totalMem = (os.totalmem() / 1024 / 1024 / 1024).toFixed(2);
-    const freeMem = (os.freemem() / 1024 / 1024 / 1024).toFixed(2);
-
-    res.json({
-        platform: os.platform(),
-        cpu: os.cpus()[0].model,
-        cores: os.cpus().length,
-        ram_total: totalMem + " GB",
-        ram_free: freeMem + " GB",
-        hostname: os.hostname(),
-        uptime: Math.floor(os.uptime() / 60) + " minutes"
-    });
-});
-
-/*
-========================
-SOCKET TERMINAL
-========================
-*/
-
-io.on("connection", (socket) => {
-
-    console.log("User connected");
-
-    const shell = process.platform === "win32"
-        ? "powershell.exe"
-        : "bash";
-
-    const ptyProcess = pty.spawn(shell, [], {
-
-        name: "xterm-color",
-
-        cols: 120,
-        rows: 30,
-
-        cwd: process.env.HOME,
-
-        env: process.env
-    });
-
-    /*
-    ========================
-    OUTPUT TO CLIENT
-    ========================
-    */
-
-    ptyProcess.onData((data) => {
-        socket.emit("output", data);
-    });
-
-    /*
-    ========================
-    INPUT FROM CLIENT
-    ========================
-    */
-
-    socket.on("input", (data) => {
-        ptyProcess.write(data);
-    });
-
-    /*
-    ========================
-    TERMINAL RESIZE
-    ========================
-    */
-
-    socket.on("resize", ({ cols, rows }) => {
-
-        try {
-            ptyProcess.resize(cols, rows);
-        } catch (e) {}
-    });
-
-    /*
-    ========================
-    DISCONNECT
-    ========================
-    */
-
-    socket.on("disconnect", () => {
-
-        console.log("User disconnected");
-
-        try {
-            ptyProcess.kill();
-        } catch (e) {}
-    });
-});
-
-/*
-========================
-START SERVER
-========================
-*/
-
-server.listen(PORT, () => {
-
-    console.log(`
-==================================
- VPS PANEL RUNNING
-==================================
-
- Local:
- http://localhost:${PORT}
-
-==================================
-    `);
-});
+server.listen(3000, () => console.log('MD.Cloud Panel running on http://localhost:3000'));
