@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>MD.Cloud HOSTING VPS Panel</title>
 
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
-<script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 
@@ -18,14 +19,12 @@
     padding: 0;
     box-sizing: border-box;
 }
-
 body {
     background: #000;
     color: white;
     font-family: Arial, sans-serif;
     overflow: hidden;
 }
-
 .topbar {
     height: 58px;
     background: #050505;
@@ -35,7 +34,6 @@ body {
     justify-content: space-between;
     padding: 0 18px;
 }
-
 .logo {
     width: 38px;
     height: 38px;
@@ -47,7 +45,6 @@ body {
     justify-content: center;
     font-weight: bold;
 }
-
 .sidebar {
     position: fixed;
     top: 58px;
@@ -61,36 +58,30 @@ body {
     transition: 0.25s;
     z-index: 10;
 }
-
 .sidebar.hidden {
     transform: translateX(-100%);
 }
-
 .file-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
+    padding: 10px 12px;
     border-radius: 8px;
     cursor: pointer;
     transition: 0.2s;
-    color: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.02);
 }
-
 .file-item:hover {
     background: rgba(255,255,255,0.08);
 }
-
 .main {
     margin-left: 280px;
     height: calc(100vh - 58px);
     transition: 0.25s;
 }
-
 .main.full {
     margin-left: 0;
 }
-
 .tabs {
     height: 52px;
     background: #050505;
@@ -101,7 +92,6 @@ body {
     padding: 0 12px;
     overflow-x: auto;
 }
-
 .tab {
     min-width: 160px;
     height: 38px;
@@ -114,29 +104,24 @@ body {
     cursor: pointer;
     background: rgba(255,255,255,0.03);
 }
-
 .tab.active {
     background: white;
     color: black;
 }
-
 .terminal-wrapper {
     position: relative;
     height: calc(100vh - 110px);
     background: black;
-}
-
-.terminal {
-    position: absolute;
-    inset: 0;
     padding: 10px;
+}
+.terminal-container {
+    width: 100%;
+    height: 100%;
     display: none;
 }
-
-.terminal.active {
+.terminal-container.active {
     display: block;
 }
-
 .top-btn {
     height: 40px;
     padding: 0 18px;
@@ -147,31 +132,26 @@ body {
     cursor: pointer;
     transition: 0.2s;
 }
-
 .top-btn:hover {
     background: white;
     color: black;
 }
-
 .modal {
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.75);
+    background: rgba(0,0,0,0.85);
     align-items: center;
     justify-content: center;
     z-index: 50;
 }
-
 .modal.active {
     display: flex;
 }
-
 ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
 }
-
 ::-webkit-scrollbar-thumb {
     background: rgba(255,255,255,0.3);
     border-radius: 20px;
@@ -202,13 +182,13 @@ body {
 <div id="sidebar" class="sidebar">
     <div class="flex items-center justify-between mb-4">
         <h2 class="font-bold text-lg">Files</h2>
-        <div class="flex gap-2">
-            <button onclick="promptCreateFile()" class="text-xs bg-zinc-800 p-2 rounded hover:bg-white hover:text-black transition" title="New File">
-                <i class="fa-solid fa-file-plus"></i> + File
-            </button>
-        </div>
+        <button onclick="promptCreateFile()" class="text-xs bg-zinc-800 px-3 py-1.5 rounded-lg hover:bg-white hover:text-black transition">
+            <i class="fa-solid fa-file-circle-plus mr-1"></i> + New File
+        </button>
     </div>
-    <div id="fileList" class="space-y-1"></div>
+    <div id="fileList" class="space-y-2">
+        <p class="text-xs text-gray-500 loading-text">Loading workspace files...</p>
+    </div>
 </div>
 
 <div id="main" class="main">
@@ -217,7 +197,7 @@ body {
 </div>
 
 <div id="editModal" class="modal">
-    <div class="background-zinc-900 bg-zinc-900 border border-zinc-800 p-6 rounded-xl w-full max-w-2xl mx-4">
+    <div class="bg-zinc-900 border border-zinc-800 p-6 rounded-xl w-full max-w-2xl mx-4">
         <div class="flex justify-between items-center mb-4">
             <h3 id="modalTitle" class="font-bold text-lg text-white">Edit File</h3>
             <button onclick="closeModal()" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
@@ -232,17 +212,24 @@ body {
 </div>
 
 <script>
+// Backend Connection Initialize 
 const socket = io();
 
 let terminalCount = 0;
 let terminals = {};
 let currentTerminalId = null;
 
-// --- TERMINAL SYSTEM ---
+// Socket connection check karne ke liye logger
+socket.on('connect', () => {
+    console.log('Connected to MD.Cloud Backend Server');
+});
+
+// --- REAL TERMINAL SYSTEM ---
 function createTerminal() {
     terminalCount++;
     const id = 'term-' + terminalCount;
 
+    // Create Tab Component
     const tab = document.createElement('div');
     tab.className = 'tab';
     tab.id = 'tab-' + id;
@@ -256,49 +243,58 @@ function createTerminal() {
     tab.onclick = () => switchTerminal(id);
     document.getElementById('tabs').appendChild(tab);
 
+    // Create Terminal DOM Box
     const termDiv = document.createElement('div');
-    termDiv.className = 'terminal';
+    termDiv.className = 'terminal-container';
     termDiv.id = id;
     document.getElementById('terminalWrapper').appendChild(termDiv);
 
+    // Xterm Instance Rules
     const term = new Terminal({
         cursorBlink: true,
         fontSize: 14,
         fontFamily: 'Courier New, monospace',
         theme: {
             background: '#000000',
-            foreground: '#ffffff'
+            foreground: '#ffffff',
+            cursor: '#ffffff'
         }
     });
 
+    const fitAddon = new TerminalAddonFit.FitAddon();
+    term.loadAddon(fitAddon);
     term.open(termDiv);
-    
-    // Backend se unique session link karna
+    fitAddon.fit();
+
+    // Backend session handshake trigger
     socket.emit('create-session', id);
 
+    // Key strokes forwarding to node-pty
     term.onData((data) => {
         socket.emit('terminal-input', { id, data });
     });
 
-    terminals[id] = term;
+    terminals[id] = { term, fitAddon };
     switchTerminal(id);
 }
 
+// Global listen backend terminal responses
 socket.on('terminal-output', (data) => {
     if (terminals[data.id]) {
-        terminals[data.id].write(data.output);
+        terminals[data.id].term.write(data.output);
     }
 });
 
 function switchTerminal(id) {
     currentTerminalId = id;
-    document.querySelectorAll('.terminal').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
 
     if(document.getElementById(id)) {
         document.getElementById(id).classList.add('active');
         document.getElementById('tab-' + id).classList.add('active');
-        terminals[id].focus();
+        terminals[id].term.focus();
+        setTimeout(() => terminals[id].fitAddon.fit(), 50);
     }
 }
 
@@ -309,7 +305,7 @@ function removeTerminal(event, id) {
     socket.emit('close-session', id);
     delete terminals[id];
 
-    const remaining = document.querySelector('.terminal');
+    const remaining = document.querySelector('.terminal-container');
     if(remaining) {
         switchTerminal(remaining.id);
     } else {
@@ -320,51 +316,62 @@ function removeTerminal(event, id) {
 function toggleSidebar() {
     document.getElementById('sidebar').classList.toggle('hidden');
     document.getElementById('main').classList.toggle('full');
+    if(currentTerminalId && terminals[currentTerminalId]) {
+        setTimeout(() => terminals[currentTerminalId].fitAddon.fit(), 260);
+    }
 }
 
-// --- FILE OPERATIONS (CRUD) ---
+// --- FILE MANAGER OPERATIONS (CRUD) ---
 async function loadFiles() {
     try {
         const res = await fetch('/api/files');
+        if (!res.ok) throw new Error("API Route unreachable");
+        
         const files = await res.json();
         const fileList = document.getElementById('fileList');
         fileList.innerHTML = '';
 
+        if(files.length === 0) {
+            fileList.innerHTML = `<p class="text-xs text-gray-500 p-2">Workspace is empty. Create a file!</p>`;
+            return;
+        }
+
         files.forEach(file => {
             const div = document.createElement('div');
-            div.className = 'file-item group';
+            div.className = 'file-item group flex items-center justify-between';
             
             const isFolder = file.type === 'folder';
             const icon = isFolder ? 'fa-folder text-yellow-500' : 'fa-file text-blue-400';
 
             div.innerHTML = `
-                <div class="flex items-center gap-3 visual-click" onclick="${isFolder ? '' : `openFile('${file.name}')`}">
-                    <i class="fa-solid ${icon}"></i>
-                    <span class="text-sm truncate max-w-[140px]">${file.name}</span>
+                <div class="flex items-center gap-3 w-full" onclick="${isFolder ? '' : `openFile('${file.name}')`}">
+                    <i class="fa-solid ${icon} text-sm"></i>
+                    <span class="text-sm truncate max-w-[150px] text-gray-200 group-hover:text-white">${file.name}</span>
                 </div>
-                <div class="opacity-0 group-hover:opacity-100 transition flex gap-2">
-                    ${!isFolder ? `<i class="fa-solid fa-pen-to-square text-gray-400 hover:text-white" onclick="openFile('${file.name}')"></i>` : ''}
-                    <i class="fa-solid fa-trash text-gray-400 hover:text-red-500" onclick="deleteFile('${file.name}')"></i>
+                <div class="flex gap-3 px-1">
+                    ${!isFolder ? `<i class="fa-solid fa-pen-to-square text-gray-400 hover:text-white text-xs cursor-pointer" onclick="openFile('${file.name}')" title="Edit"></i>` : ''}
+                    <i class="fa-solid fa-trash text-gray-400 hover:text-red-500 text-xs cursor-pointer" onclick="deleteFile('${file.name}')" title="Delete"></i>
                 </div>
             `;
             fileList.appendChild(div);
         });
     } catch (err) {
+        document.getElementById('fileList').innerHTML = `<p class="text-xs text-red-400 p-2">Error connecting to backend API</p>`;
         console.error("Files load karne me error aya:", err);
     }
 }
 
 function promptCreateFile() {
-    const filename = prompt("Enter new file name (e.g., test.txt):");
-    if (!filename) return;
+    const filename = prompt("Enter new file name with extension (e.g., system.js, note.txt):");
+    if (!filename || filename.trim() === "") return;
 
     fetch('/api/files', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: filename, content: '' })
+        body: JSON.stringify({ name: filename.trim(), content: '' })
     }).then(res => {
         if(res.ok) loadFiles();
-        else alert("File create nahi ho payi!");
+        else alert("File create nahi ho saki!");
     });
 }
 
@@ -402,7 +409,7 @@ async function saveFileContent() {
 }
 
 function deleteFile(filename) {
-    if (!confirm(`Kya aap "${filename}" ko delete karna chahte hain?`)) return;
+    if (!confirm(`Kya aap "${filename}" ko hamesha ke liye delete karna chahte hain?`)) return;
 
     fetch(`/api/files/${filename}`, { method: 'DELETE' })
     .then(res => {
@@ -411,9 +418,18 @@ function deleteFile(filename) {
     });
 }
 
-// Initial Kickstart
-createTerminal();
-loadFiles();
+// Terminal window resize handler auto fit rules
+window.addEventListener('resize', () => {
+    if(currentTerminalId && terminals[currentTerminalId]) {
+        terminals[currentTerminalId].fitAddon.fit();
+    }
+});
+
+// Run commands on startup
+setTimeout(() => {
+    createTerminal();
+    loadFiles();
+}, 200);
 </script>
 
 </body>
