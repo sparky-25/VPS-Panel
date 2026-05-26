@@ -6,6 +6,9 @@
 ``
 npm install
 ``
+``
+npm install fs-extra express socket.io node-pty
+``
 
 # Start
 
