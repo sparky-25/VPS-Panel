@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Ubuntu VPS Panel</title>
+<title>MD.Cloud HOSTING VPS Panel</title>
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -52,13 +52,14 @@ body {
     position: fixed;
     top: 58px;
     left: 0;
-    width: 260px;
+    width: 280px;
     height: calc(100vh - 58px);
     background: #050505;
     border-right: 1px solid rgba(255,255,255,0.08);
     padding: 16px;
     overflow-y: auto;
     transition: 0.25s;
+    z-index: 10;
 }
 
 .sidebar.hidden {
@@ -68,9 +69,9 @@ body {
 .file-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px;
-    border-radius: 12px;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-radius: 8px;
     cursor: pointer;
     transition: 0.2s;
     color: rgba(255,255,255,0.9);
@@ -81,7 +82,7 @@ body {
 }
 
 .main {
-    margin-left: 260px;
+    margin-left: 280px;
     height: calc(100vh - 58px);
     transition: 0.25s;
 }
@@ -152,6 +153,20 @@ body {
     color: black;
 }
 
+.modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+}
+
+.modal.active {
+    display: flex;
+}
+
 ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -166,49 +181,54 @@ body {
 <body>
 
 <div class="topbar">
-
     <div class="flex items-center gap-3">
-        <div class="logo">V</div>
-
+        <div class="logo">MD</div>
         <div>
-            <h1 class="font-bold text-sm">VPS PANEL</h1>
-            <p class="text-xs text-gray-400">Ubuntu Terminal System</p>
+            <h1 class="font-bold text-sm tracking-wide">MD.Cloud HOSTING VPS Panel</h1>
+            <p class="text-xs text-gray-400">Secure Ubuntu Environment</p>
         </div>
     </div>
 
     <div class="flex items-center gap-2">
-
         <button onclick="toggleSidebar()" class="top-btn">
-            <i class="fa-solid fa-folder"></i>
-            Files
+            <i class="fa-solid fa-folder mr-1"></i> Files
         </button>
-
         <button onclick="createTerminal()" class="top-btn">
-            <i class="fa-solid fa-plus"></i>
-            Terminal
+            <i class="fa-solid fa-plus mr-1"></i> Terminal
         </button>
-
     </div>
-
 </div>
 
 <div id="sidebar" class="sidebar">
-
-    <div class="flex items-center justify-between mb-5">
+    <div class="flex items-center justify-between mb-4">
         <h2 class="font-bold text-lg">Files</h2>
-        <i class="fa-solid fa-folder-tree"></i>
+        <div class="flex gap-2">
+            <button onclick="promptCreateFile()" class="text-xs bg-zinc-800 p-2 rounded hover:bg-white hover:text-black transition" title="New File">
+                <i class="fa-solid fa-file-plus"></i> + File
+            </button>
+        </div>
     </div>
-
     <div id="fileList" class="space-y-1"></div>
-
 </div>
 
 <div id="main" class="main">
-
     <div id="tabs" class="tabs"></div>
-
     <div id="terminalWrapper" class="terminal-wrapper"></div>
+</div>
 
+<div id="editModal" class="modal">
+    <div class="background-zinc-900 bg-zinc-900 border border-zinc-800 p-6 rounded-xl w-full max-w-2xl mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h3 id="modalTitle" class="font-bold text-lg text-white">Edit File</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <input type="hidden" id="editingFileName">
+        <textarea id="fileEditor" class="w-full h-80 bg-black text-green-400 p-3 font-mono border border-zinc-800 rounded-lg focus:outline-none focus:border-zinc-600 resize-none"></textarea>
+        <div class="flex justify-end gap-3 mt-4">
+            <button onclick="closeModal()" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition">Cancel</button>
+            <button onclick="saveFileContent()" class="px-4 py-2 rounded-lg bg-white text-black font-semibold hover:bg-gray-200 transition">Save Changes</button>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -216,39 +236,35 @@ const socket = io();
 
 let terminalCount = 0;
 let terminals = {};
+let currentTerminalId = null;
 
+// --- TERMINAL SYSTEM ---
 function createTerminal() {
-
     terminalCount++;
-
     const id = 'term-' + terminalCount;
 
     const tab = document.createElement('div');
     tab.className = 'tab';
     tab.id = 'tab-' + id;
-
     tab.innerHTML = `
         <div class="flex items-center gap-2">
-            <i class="fa-solid fa-terminal"></i>
+            <i class="fa-solid fa-terminal text-xs"></i>
             <span>Terminal ${terminalCount}</span>
         </div>
-
-        <i class="fa-solid fa-xmark cursor-pointer" onclick="removeTerminal(event, '${id}')"></i>
+        <i class="fa-solid fa-xmark cursor-pointer text-xs hover:text-red-500" onclick="removeTerminal(event, '${id}')"></i>
     `;
-
     tab.onclick = () => switchTerminal(id);
-
     document.getElementById('tabs').appendChild(tab);
 
     const termDiv = document.createElement('div');
     termDiv.className = 'terminal';
     termDiv.id = id;
-
     document.getElementById('terminalWrapper').appendChild(termDiv);
 
     const term = new Terminal({
         cursorBlink: true,
         fontSize: 14,
+        fontFamily: 'Courier New, monospace',
         theme: {
             background: '#000000',
             foreground: '#ffffff'
@@ -256,93 +272,146 @@ function createTerminal() {
     });
 
     term.open(termDiv);
-
-    term.write('Welcome to Ubuntu VPS\\r\\n');
-    term.write('Connected to shell\\r\\n\\r\\n');
+    
+    // Backend se unique session link karna
+    socket.emit('create-session', id);
 
     term.onData((data) => {
-        socket.emit('input', data);
+        socket.emit('terminal-input', { id, data });
     });
 
     terminals[id] = term;
-
     switchTerminal(id);
 }
 
-socket.on('output', (data) => {
-    Object.values(terminals).forEach(term => {
-        term.write(data);
-    });
+socket.on('terminal-output', (data) => {
+    if (terminals[data.id]) {
+        terminals[data.id].write(data.output);
+    }
 });
 
 function switchTerminal(id) {
+    currentTerminalId = id;
+    document.querySelectorAll('.terminal').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
 
-    document.querySelectorAll('.terminal').forEach(el => {
-        el.classList.remove('active');
-    });
-
-    document.querySelectorAll('.tab').forEach(el => {
-        el.classList.remove('active');
-    });
-
-    document.getElementById(id).classList.add('active');
-    document.getElementById('tab-' + id).classList.add('active');
-
-    terminals[id].focus();
+    if(document.getElementById(id)) {
+        document.getElementById(id).classList.add('active');
+        document.getElementById('tab-' + id).classList.add('active');
+        terminals[id].focus();
+    }
 }
 
 function removeTerminal(event, id) {
-
     event.stopPropagation();
-
     document.getElementById(id)?.remove();
     document.getElementById('tab-' + id)?.remove();
-
+    socket.emit('close-session', id);
     delete terminals[id];
 
-    const first = document.querySelector('.terminal');
-
-    if(first) {
-        switchTerminal(first.id);
+    const remaining = document.querySelector('.terminal');
+    if(remaining) {
+        switchTerminal(remaining.id);
+    } else {
+        currentTerminalId = null;
     }
 }
 
 function toggleSidebar() {
-
     document.getElementById('sidebar').classList.toggle('hidden');
     document.getElementById('main').classList.toggle('full');
 }
 
+// --- FILE OPERATIONS (CRUD) ---
 async function loadFiles() {
+    try {
+        const res = await fetch('/api/files');
+        const files = await res.json();
+        const fileList = document.getElementById('fileList');
+        fileList.innerHTML = '';
 
-    const res = await fetch('/files');
-    const files = await res.json();
+        files.forEach(file => {
+            const div = document.createElement('div');
+            div.className = 'file-item group';
+            
+            const isFolder = file.type === 'folder';
+            const icon = isFolder ? 'fa-folder text-yellow-500' : 'fa-file text-blue-400';
 
-    const fileList = document.getElementById('fileList');
+            div.innerHTML = `
+                <div class="flex items-center gap-3 visual-click" onclick="${isFolder ? '' : `openFile('${file.name}')`}">
+                    <i class="fa-solid ${icon}"></i>
+                    <span class="text-sm truncate max-w-[140px]">${file.name}</span>
+                </div>
+                <div class="opacity-0 group-hover:opacity-100 transition flex gap-2">
+                    ${!isFolder ? `<i class="fa-solid fa-pen-to-square text-gray-400 hover:text-white" onclick="openFile('${file.name}')"></i>` : ''}
+                    <i class="fa-solid fa-trash text-gray-400 hover:text-red-500" onclick="deleteFile('${file.name}')"></i>
+                </div>
+            `;
+            fileList.appendChild(div);
+        });
+    } catch (err) {
+        console.error("Files load karne me error aya:", err);
+    }
+}
 
-    fileList.innerHTML = '';
+function promptCreateFile() {
+    const filename = prompt("Enter new file name (e.g., test.txt):");
+    if (!filename) return;
 
-    files.forEach(file => {
-
-        const div = document.createElement('div');
-
-        div.className = 'file-item';
-
-        let icon = 'fa-file';
-
-        if(file.type === 'folder') {
-            icon = 'fa-folder';
-        }
-
-        div.innerHTML = `
-            <i class="fa-solid ${icon}"></i>
-            <span>${file.name}</span>
-        `;
-
-        fileList.appendChild(div);
+    fetch('/api/files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: filename, content: '' })
+    }).then(res => {
+        if(res.ok) loadFiles();
+        else alert("File create nahi ho payi!");
     });
 }
 
+async function openFile(filename) {
+    const res = await fetch(`/api/files/${filename}`);
+    if (res.ok) {
+        const data = await res.json();
+        document.getElementById('editingFileName').value = filename;
+        document.getElementById('modalTitle').innerText = `Editing: ${filename}`;
+        document.getElementById('fileEditor').value = data.content;
+        document.getElementById('editModal').classList.add('active');
+    }
+}
+
+function closeModal() {
+    document.getElementById('editModal').classList.remove('active');
+}
+
+async function saveFileContent() {
+    const filename = document.getElementById('editingFileName').value;
+    const content = document.getElementById('fileEditor').value;
+
+    const res = await fetch(`/api/files/${filename}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+    });
+
+    if (res.ok) {
+        closeModal();
+        loadFiles();
+    } else {
+        alert("Changes save nahi ho paye!");
+    }
+}
+
+function deleteFile(filename) {
+    if (!confirm(`Kya aap "${filename}" ko delete karna chahte hain?`)) return;
+
+    fetch(`/api/files/${filename}`, { method: 'DELETE' })
+    .then(res => {
+        if(res.ok) loadFiles();
+        else alert("File delete nahi ho saki.");
+    });
+}
+
+// Initial Kickstart
 createTerminal();
 loadFiles();
 </script>
