@@ -2,14 +2,19 @@
 🦾VPS Hosting - 💻MD.Cloud HOSTING
 
 # Install
-`bash
+
+``bash
 npm install
-`
+``
+
 # Start
-`bash
+
+``bash
 node server.js
-`
+``
+
 # Open Browser
-`bash
+
+``bash
 http://localhost:3000
-`
+``
